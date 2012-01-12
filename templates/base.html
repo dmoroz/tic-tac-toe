@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Tic-Tac-Toe</title>
+  
+  <link rel="icon" type="image/png" href="{{ static_url("img/favicon.png") }}">
+
+  <link rel="stylesheet" href="{{ static_url("css/reset.css") }}">
+  <link rel="stylesheet" href="{{ static_url("css/master.css") }}">
+  <link rel="stylesheet" href="{{ static_url("css/jquery.gritter.css") }}">
+
+  <script src="{{ static_url("js/jquery-1.7.1.min.js") }}"></script>
+  <script src="{{ static_url("js/jquery.gritter.min.js") }}"></script>
+  <script src="{{ static_url("js/jquery.tmpl.min.js") }}"></script>
+  <script src="{{ static_url("js/json2.js") }}"></script>
+  <script src="{{ static_url("js/underscore-min.js") }}"></script>
+  <script src="{{ static_url("js/backbone-min.js") }}"></script>
+  
+  {% block breadcrumbs %}
+  {% end %}
+
+  <script id="cross-template" type="text/x-jquery-tmpl">
+    <div class="cross"><div class="top left"></div><div class="top right"></div><div class="bottom left"></div><div class="bottom right"></div></div>
+  </script>
+  <script id="nought-template" type="text/x-jquery-tmpl">
+    <div class="nought"><div class="inner-nought"></div></div>
+  </script>
+</head>
+
+<body>
+<div id="container">
+  <header>
+    {% block header %}
+    <h1><a href="{{ reverse_url("game_start") }}">Start Game</a></h1>
+    {% end %}
+  </header>
+
+  <div id="main" role="main">
+      {% block content %}
+      {% end %}
+  </div>
+
+  <footer>
+  </footer>
+</div>
+</body>
+</html>

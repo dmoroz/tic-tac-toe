@@ -1,0 +1,92 @@
+body {
+  font-family:Palatino, 'Palatino Linotype', Georgia, serif;
+}
+
+div#grid {
+    width:500px;
+    height:500px;
+    position:absolute;
+    top:50%;
+    left:50%;
+    margin-left:-250px;
+    margin-top:-250px;
+}
+
+div.cell {
+    display:inline-block;
+    float:left;
+    width:160px;
+    height:160px;
+}
+
+div.vertical-border {border-right:10px solid #777;}
+div.horizontal-border {border-bottom:10px solid #777;}
+
+div.nought {
+    background:#61B1CA;
+    border-radius:64px;
+    width:128px;
+    height:128px;
+    position:relative;
+    top:16px;
+    left:16px;
+}
+
+div.inner-nought {
+    background:white;
+    border-radius:48px;
+    width:96px;
+    height:96px;
+    position:relative;
+    top:16px;
+    left:16px;
+}
+
+div.cross {
+    width:142px;
+    height:142px;
+    position:relative;
+    top:10px;
+    left:10px;
+    transform:rotate(45deg);
+    -webkit-transform:rotate(45deg);
+    -moz-transform:rotate(45deg);
+    -o-transform:rotate(45deg);
+}
+
+div.cross div.top,
+div.cross div.bottom {
+    display:inline-block;
+    float:left;
+    width:62px;
+    height:62px;
+}
+
+div.cross div.top {border-bottom:18px solid #F26E1C;}
+div.cross div.left {border-right:18px solid #F26E1C;}
+
+div.cross-highlighted {background:#F26E1C;}
+div.cross-highlighted div.cross div.top {border-bottom:18px solid white;}
+div.cross-highlighted div.cross div.left {border-right:18px solid white;}
+
+div.nought-highlighted {background:#61B1CA;}
+div.nought-highlighted div.nought {background:white;}
+div.nought-highlighted div.inner-nought {background:#61B1CA;}
+
+p.current-game-url {
+  color:#333;
+  font-size:1.3em;
+  font-style:italic;
+  padding:15px;
+  text-align:center;
+}
+
+p.current-game-url input {
+  border:1px solid #eaeaea;
+  border-radius:5px;
+  box-shadow:inset 1px 1px 1px #c0c0c0;
+  color:#555;
+  font-size:1.1em;
+  padding:3px 5px;
+  width:600px;
+}

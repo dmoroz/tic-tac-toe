@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block header %}{% end %}
+
+{% block breadcrumbs %}
+  {% if gamer != "hermit" %}
+  <script>
+    var mark = '{{ "cross" if gamer == "primary" else "nought" }}';
+    var game_hash = '{{ game.get("_id") }}';
+  </script>
+  <script src="{{ static_url("js/game.js") }}"></script>
+  {% end %}
+{% end %}
+
+{% block content %}
+{% if gamer != "hermit" %}
+{% if gamer == "primary" %}
+<p class="current-game-url">Share this URL with your opponent: <input type="text" value="{{ request.full_url() }}" readonly="readonly"></p>
+{% end %}
+
+<div id="grid">
+  <div class="cell horizontal-border vertical-border">
+      <div class="a0"></div>
+  </div>
+  <div class="cell horizontal-border vertical-border">
+      <div class="b0"></div>
+  </div>
+  <div class="cell horizontal-border">
+      <div class="c0"></div>
+  </div>
+  <div class="cell horizontal-border vertical-border">
+      <div class="a1"></div>
+  </div>
+  <div class="cell horizontal-border vertical-border">
+      <div class="b1"></div>
+  </div>
+  <div class="cell horizontal-border">
+      <div class="c1"></div>
+  </div>
+  <div class="cell vertical-border">
+      <div class="a2"></div>
+  </div>
+  <div class="cell vertical-border">
+      <div class="b2"></div>
+  </div>
+  <div class="cell">
+      <div class="c2"></div>
+  </div>
+</div>
+{% else %}
+<p class="warning">You are not participating in the current game. <a href="{{ reverse_url("game_start") }}" title="Start a new game">Click here to start a new game</a>.</p>
+{% end %}
+{% end %}
