@@ -189,10 +189,8 @@ class GameManager(object):
                     }
 
             # Check if a game result is draw
-            if all(coordinates.values()):
+            if not result and all(coordinates.values()):
                 result = {'draw': True}
-
-        print(result)
 
         # Finish a game if there is a result
         if result:
@@ -204,5 +202,4 @@ class GameManager(object):
                 # Set status to `finish` (3)
                 'status': 3,
             })
-            print(game_updated)
             self.update(game_updated, self._on_gamer_add)
