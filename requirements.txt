@@ -1,4 +1,4 @@
-asyncmongo==1.1.1
-pymongo==2.1.1
--e git+https://github.com/facebook/tornado.git@26a06a0b167773a5e6dae237e90d31741140b4cc#egg=tornado-dev
-wsgiref==0.1.2
+-e git+https://github.com/bitly/asyncmongo.git@2fa1288fa3737ab912aa13eef0d6bc3e0ab0b1a0#egg=asyncmongo-master
+backports.ssl-match-hostname==3.4.0.2
+pymongo==2.7
+tornado==3.2.1
