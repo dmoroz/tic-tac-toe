@@ -1,54 +1,77 @@
-# -*- coding: utf-8  -*-
+# coding: utf-8
 
-import datetime
 import hashlib
-import hmac
-from copy import deepcopy
+import time
+import uuid
+
+import tornado.gen
+
+import asyncmongo
 
 
-__all__ = ('generate_gamer_hash', 'generate_game_hash', 'GameManager')
+__all__ = ('Game',)
 
 
-def generate_gamer_hash(request):
-    """Generates gamer hash using hmac and md5"""
-    return hmac.new('%s!@#%s$)^%s&*(' % (
-        request.remote_ip,
-        request.headers.get('User-Agent', 'Foofox'),
-        hashlib.md5('%s' % datetime.datetime.now()).hexdigest()
-    )).hexdigest()
+class Game(object):
+    """
+    Game model object class
+    """
 
-def generate_game_hash(request):
-    """Generates gamer hash using md5"""
-    return hashlib.md5('%s%s' % (
-        request.remote_ip,
-        datetime.datetime.now()
-    )).hexdigest()
+    STATUS_CHOICES = {
+        'new': 1,
+        'game': 2,
+        'finish': 3,
+    }
 
+    WINNING_COMBINATIONS = (
+        # Verticals
+        {'a0', 'a1', 'a2'},
+        {'b0', 'b1', 'b2'},
+        {'c0', 'c1', 'c2'},
+        # Horizontals
+        {'a0', 'b0', 'c0'},
+        {'a1', 'b1', 'c1'},
+        {'a2', 'b2', 'c2'},
+        # Diagonals
+        {'a0', 'b1', 'c2'},
+        {'a2', 'b1', 'c0'},
+    )
 
-class GameManager(object):
-    """ Game Manager object """
+    db = None
+    state = None
 
-    def __init__(self, game_hash, db):
+    def __init__(self, game_hash=None):
+        assert self.db is not None, 'DB is not set'
         self.game_hash = game_hash
-        self.db = db
 
-    def _grid(self):
-        """Generates grid cells coordinates"""
-        coordinates = {}
-        for l in 'abc':
-            for d in '012':
-                coordinates[l + d] = None
-        return coordinates
+    @classmethod
+    def setup_db(cls):
+        cls.db = asyncmongo.Client(
+            pool_id='gamedb',
+            host='127.0.0.1',
+            port=27017,
+            dbname='tictactoe'
+        )
 
-    def create(self, callback):
-        """Creates a new game"""
-        STATUS_CHOICES = {
-            'new': 1,
-            'game': 2,
-            'finish': 3,
-        }
-        game_payload = {
-            '_id': self.game_hash,
+    @classmethod
+    @tornado.gen.coroutine
+    def get(cls, game_hash):
+        game = cls(game_hash)
+        game.state = yield game.read()
+        raise tornado.gen.Return(game)
+
+    @classmethod
+    @tornado.gen.coroutine
+    def create(cls):
+        """
+        Creates a new game and returns it's object.
+        """
+
+        game = cls()
+        game.game_hash = game._get_random_hash()
+
+        game.state = {
+            '_id': game.game_hash,
             'gamers': {
                 'primary': None,
                 'secondary': None,
@@ -56,45 +79,45 @@ class GameManager(object):
             'winner': None,
             'winning_combination': None,
             'draw': None,
-            'coordinates': self._grid(),
+            'coordinates': game._get_empty_grid(),
             'last_mark': None,
-            'status': STATUS_CHOICES.get('new'),
+            'status': game.STATUS_CHOICES.get('new'),
         }
-        self.db.games.insert(game_payload, callback=callback)
 
-    def read(self, callback):
-        """Reads an existent game"""
-        self.db.games.find_one(
+        yield tornado.gen.Task(game.db.games.insert, game.state)
+
+        raise tornado.gen.Return(game)
+
+    @tornado.gen.coroutine
+    def read(self):
+        """
+        Reads an existent game
+        """
+        result = yield tornado.gen.Task(self.db.games.find_one, {'_id': self.game_hash})
+        raise tornado.gen.Return(result.args[0])
+
+    @tornado.gen.coroutine
+    def save(self):
+        """
+        Persists current game state.
+        """
+        result = yield tornado.gen.Task(self.db.games.update, {'_id': self.game_hash}, self.state)
+        raise tornado.gen.Return(result)
+
+    @tornado.gen.coroutine
+    def update(self, game_updated):
+        """
+        Updates current game
+        """
+        result = yield tornado.gen.Task(
+            self.db.games.update,
             {'_id': self.game_hash},
-            callback=callback
+            game_updated
         )
+        raise tornado.gen.Return(result)
 
-    def update(self, game_updated, callback):
-        """Updates current game"""
-        self.db.games.update({'_id': self.game_hash},
-                             game_updated,
-                             callback=callback)
-
-    def _gamer_add(self, game, gamer_hash, gamer_role, callback):
-        """
-        Adds a gamer to the current game with a given gamer_role.
-        Argument gamer_role might be either `primary` or `secondary`
-        """
-        game_updated = deepcopy(game)
-        game_updated['gamers'].update({gamer_role: gamer_hash})
-        self.update(game_updated, callback)
-
-    def _on_gamer_add(self, response, error):
-        pass
-
-    def actions(self, actions, game, gamer_hash):
-        """Emits some game related actions, listen in actions list"""
-        return (
-            getattr(self, action)(game, gamer_hash)
-            for action in actions
-        )
-
-    def gamer(self, game, gamer_hash):
+    @tornado.gen.coroutine
+    def get_gamer(self, gamer_hash):
         """
         Handles a given gamer for a current game. Adding it either
         as primary or secondary. Returns 'primary' or 'secondary'
@@ -102,104 +125,80 @@ class GameManager(object):
         Returns 'hermit' if game already has 2 gamers.
         """
 
-        result = u'%s'
-
         # If game has no gamers
-        if not any(game['gamers'].values()):
+        if not any(self.state['gamers'].values()):
             # Add gamer as primary
             role = 'primary'
-            self._gamer_add(game, gamer_hash, role, self._on_gamer_add)
-            return result % role
+            self.state['gamers'].update({role: gamer_hash})
+            yield self.save()
+            raise tornado.gen.Return(role)
 
         # If gamer participate this game
-        if gamer_hash in game['gamers'].values():
-            return (
-                result % key
-                for key, value in game['gamers'].iteritems()
-                if value == gamer_hash
-            ).next()
+        if gamer_hash in self.state['gamers'].values():
+            role = [key for key, value in self.state['gamers'].iteritems()
+                    if value == gamer_hash][0]
+            raise tornado.gen.Return(role)
 
         # If game has no secondary gamer
-        if game['gamers']['secondary'] is None:
+        if self.state['gamers']['secondary'] is None:
             # Add gamer as secondary
             role = 'secondary'
-            self._gamer_add(game, gamer_hash, role, self._on_gamer_add)
-            return result % role
+            self.state['gamers'].update({role: gamer_hash})
+            yield self.save()
+            raise tornado.gen.Return(role)
 
         # If game already has 2 gamers and previous condition fails
-        if all(game['gamers'].values()):
-            return result % 'hermit'
+        if all(self.state['gamers'].values()):
+            role = 'hermit'
+            raise tornado.gen.Return(role)
 
-    def can_play(self, game, gamer_hash):
-        """
-        Checks whether a given gamer can participate in the current game
-        """
-        if gamer_hash in game['gamers'].values(): return True
-
-    def mark(self, game, gamer_hash):
-        """Gets a mark for a current gamer"""
-        mark = u'%s'
-        return (
-            mark % 'cross'
-            if game['gamers']['primary'] == gamer_hash
-            else 'nought'
-        )
-
-    def status(self, game):
+    @tornado.gen.coroutine
+    def status(self):
         """
         Monitors status of the current game, checks for winning
         combinations and checks whether game result is draw.
-        When game is finished, updates game state with appropriate values
+        When game is finished, updates game state with appropriate values.
         """
 
         result = None
 
-        WINNING_COMBINATIONS = (
-            # Verticals
-            ('a0', 'a1', 'a2'),
-            ('b0', 'b1', 'b2'),
-            ('c0', 'c1', 'c2'),
-            # Horizontals
-            ('a0', 'b0', 'c0'),
-            ('a1', 'b1', 'c1'),
-            ('a2', 'b2', 'c2'),
-            # Diagonals
-            ('a0', 'b1', 'c2'),
-            ('a2', 'b1', 'c0'),
-        )
+        coordinates = self.state['coordinates']
+        current_turn_mark = self.state['last_mark']
+        current_turn_mark_coordinates = {coordinate
+            for coordinate, mark in coordinates.iteritems()
+            if mark == current_turn_mark}
 
-        MARKS = ('cross', 'nought')
-
-        coordinates = game.get('coordinates')
-        
-        # Create winning combination values maps
-        for combination in WINNING_COMBINATIONS:
-            combination_map = {}
-            for key, value in coordinates.iteritems():
-                if key in combination:
-                    combination_map[key] = value
-            
-            # Check for a winning combination
-            for mark in MARKS:
-                mark_count = combination_map.values().count(mark)
-                if mark_count == 3:
-                    result = {
-                        'winning_combination': combination_map.keys(),
-                        'winner': mark,
-                    }
-
-            # Check if a game result is draw
-            if not result and all(coordinates.values()):
+        for combination in self.WINNING_COMBINATIONS:
+            # Check whether winning combination presents in current turn mark coordiates
+            if combination <= current_turn_mark_coordinates:
+                result = {
+                    'winning_combination': list(combination),
+                    'winner': current_turn_mark
+                }
+                break
+        else:
+            # Check whether a game result is draw (no result and all coordinates are filled out)
+            if all(coordinates.values()):
                 result = {'draw': True}
 
         # Finish a game if there is a result
         if result:
-            game_updated = deepcopy(game)
-            game_updated.update({
+            self.state.update({
                 'winner': result.get('winner'),
                 'winning_combination': result.get('winning_combination'),
                 'draw': result.get('draw'),
-                # Set status to `finish` (3)
-                'status': 3,
+                'status': self.STATUS_CHOICES['finish'],
             })
-            self.update(game_updated, self._on_gamer_add)
+            yield self.save()
+
+    def _get_random_hash(self):
+        """
+        Generates and returns a random hash.
+        """
+        return hashlib.sha256(str(time.time())).hexdigest() + uuid.uuid4().hex
+
+    def _get_empty_grid(self):
+        """
+        Generates grid cells coordinates with empty values and returns as a dictionary.
+        """
+        return {letter + str(index): None for letter in ['a', 'b', 'c'] for index in range(3)}
