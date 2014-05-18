@@ -2,3 +2,4 @@
 *.sublime-*
 .DS_Store
 .env
+.ropeproject
