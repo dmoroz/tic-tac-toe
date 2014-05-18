@@ -14,30 +14,28 @@ import tornado.websocket
 from tornado.options import define, options
 from tornado.web import URLSpec as url
 
-import asyncmongo
-
-from game import (GameManager, generate_gamer_hash, generate_game_hash)
+from game import Game
 
 
 PROJECT_ROOT = os.path.normpath(os.path.dirname(__file__))
-GAMER_MAP = {}
 
 
 define('port', default=3000, help='run on the given port', type=int)
 define('address', default='0.0.0.0', help='run on the given address', type=str)
 
 
+@tornado.gen.coroutine
+def maybe_future(f, *args, **kwargs):
+    result = f(*args, **kwargs)
+    if isinstance(result, tornado.gen.Future):
+        result = yield result
+    raise tornado.gen.Return(result)
+
+
 class Application(tornado.web.Application):
     """ Main application class """
 
     def __init__(self):
-
-        self.db = asyncmongo.Client(
-            pool_id='gamedb',
-            host='127.0.0.1',
-            port=27017,
-            dbname='tictactoe'
-        )
 
         handlers = [
             url(r'/', IndexHandler, name='index'),
@@ -71,34 +69,31 @@ class GameStartHandler(tornado.web.RequestHandler):
 
     @tornado.gen.coroutine
     def get(self):
-        game_manager = GameManager(generate_game_hash(self.request), self.application.db)
         # Create a new game
-        yield game_manager.create()
-        game = yield game_manager.read()
-        self.redirect(self.reverse_url('game_detail', game['_id']))
+        game = yield Game.create()
+        self.redirect(self.reverse_url('game_detail', game.game_hash))
 
 
 class GameDetailHandler(tornado.web.RequestHandler):
 
     @tornado.gen.coroutine
     def get(self, game_hash):
+
+        game = yield Game.get(game_hash)
+
         # Get gamer hash either from cookie or create a new one
         if self.get_cookie('gamer_hash'):
             gamer_hash = self.get_cookie('gamer_hash')
         else:
-            gamer_hash = generate_gamer_hash(self.request)
+            gamer_hash = game._get_random_hash()
             self.set_cookie('gamer_hash', gamer_hash)
 
-        game_manager = GameManager(game_hash, self.application.db)
-
-        game = yield game_manager.read()
-        gamer = yield game_manager.gamer(game, gamer_hash)
+        gamer = yield game.get_gamer(gamer_hash)
 
         payload = {
-            'game': game,
+            'game': game.state,
             'gamer': gamer
         }
-
         self.render('game.html', **payload)
 
 
@@ -106,15 +101,14 @@ class GameHandler(tornado.websocket.WebSocketHandler):
     """WebSocket game handler"""
 
     ALLOWED_EVENTS = ('read', 'update')
+    GAMER_MAP = {}
 
-    @tornado.gen.coroutine
-    def read(self, value=None):
+    def read(self, *args, **kwargs):
         """
         Reads current game state
         """
-        game = yield self.game_manager.read()
         self.write_message(
-            tornado.escape.to_unicode(tornado.escape.json_encode(game))
+            tornado.escape.to_unicode(tornado.escape.json_encode(self.game.state))
         )
 
     @tornado.gen.coroutine
@@ -122,37 +116,37 @@ class GameHandler(tornado.websocket.WebSocketHandler):
         """
         Updates coordinates, last mark and checks game status
         """
-        yield self.game_manager.update(game_updated)
+
+        self.game.state.update(game_updated)
+        yield self.game.save()
 
         # Check game status
         start = time.time()
-        yield self.game_manager.status(game_updated)
+        yield self.game.status()
         logging.info('Game status updated in {:.2f}ms'.format((time.time() - start) * 1000))
 
-        game = yield self.game_manager.read()
-
         self.send_to_all(tornado.escape.to_unicode(
-            tornado.escape.json_encode(game)
+            tornado.escape.json_encode(self.game.state)
         ))
 
+    @tornado.gen.coroutine
     def open(self, game_hash):
         """
         Handles WebSocket connection openning
         """
+
         logging.info('WebSocket opened')
-        self.game_hash = game_hash
-        self.game_manager = GameManager(
-            self.game_hash,
-            self.application.db
-        )
+
+        self.game = yield Game.get(game_hash)
 
         # Add empty set to gamers map in gamers attribute
-        setattr(self, 'gamers', GAMER_MAP.setdefault(self.game_hash,
-                                                     set()))
+        self.gamers = self.GAMER_MAP.setdefault(game_hash, set())
+
         # Add gamer to gamers set
         self.gamers.add(self)
+
         logging.info('Gamer added')
-        logging.info('Gamers: %s' % len(self.gamers))
+        logging.info('Gamers: {}'.format(len(self.gamers)))
 
     def send_to_all(self, message):
         """
@@ -173,7 +167,7 @@ class GameHandler(tornado.websocket.WebSocketHandler):
         if event not in self.ALLOWED_EVENTS:
             raise Exception('Method for {} event is not implemeneted.'.format(event))
 
-        yield getattr(self, event)(value)
+        yield maybe_future(getattr(self, event), value)
 
     def on_close(self):
         logging.info("WebSocket closed")
@@ -184,6 +178,7 @@ class GameHandler(tornado.websocket.WebSocketHandler):
 
 
 def main():
+    Game.setup_db()
     application = Application()
     application.listen(options.port, options.address)
     logging.info('Running on http://%s:%s' % (
