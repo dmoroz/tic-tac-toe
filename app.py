@@ -107,6 +107,7 @@ class GameHandler(tornado.websocket.WebSocketHandler):
         """
         Reads current game state
         """
+
         self.write_message(
             tornado.escape.to_unicode(tornado.escape.json_encode(self.game.state))
         )
@@ -125,7 +126,7 @@ class GameHandler(tornado.websocket.WebSocketHandler):
         yield self.game.status()
         logging.info('Game status updated in {:.2f}ms'.format((time.time() - start) * 1000))
 
-        self.send_to_all(tornado.escape.to_unicode(
+        yield self.send_to_all(tornado.escape.to_unicode(
             tornado.escape.json_encode(self.game.state)
         ))
 
@@ -152,9 +153,11 @@ class GameHandler(tornado.websocket.WebSocketHandler):
         """
         Send message to all gamers in the current game
         """
+
         logging.info('Sending to all message: {}'.format(message))
-        for gamer in self.gamers:
-            gamer.write_message(message)
+
+        for g in self.gamers:
+            g.write_message(message)
 
     @tornado.gen.coroutine
     def on_message(self, message):
@@ -174,17 +177,14 @@ class GameHandler(tornado.websocket.WebSocketHandler):
         # Remove gamer from gamers set
         self.gamers.remove(self)
         logging.info('Gamer removed')
-        logging.info('Gamers: %s' % len(self.gamers))
+        logging.info('Gamers: {}'.format(len(self.gamers)))
 
 
 def main():
     Game.setup_db()
     application = Application()
     application.listen(options.port, options.address)
-    logging.info('Running on http://%s:%s' % (
-        options.address,
-        options.port
-    ))
+    logging.info('Running on http://{0.address}:{0.port}'.format(options))
     tornado.ioloop.IOLoop.instance().start()
 
 
